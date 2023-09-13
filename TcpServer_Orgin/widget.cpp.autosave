@@ -1,0 +1,107 @@
+#include "widget.h"
+#include<QHBoxLayout>
+#include<QVBoxLayout>
+
+
+
+Widget::Widget(QWidget *parent)
+    : QWidget(parent)
+{
+    this->StartServer();
+
+    m_myjson = new MyJson(this);
+
+    m_textEdit = new QTextEdit(this);
+    m_LineEdit = new QLineEdit(this);
+    m_comboBox = new QComboBox(this);
+    m_btnSend = new QPushButton("send",this);
+
+    QHBoxLayout *hlayout = new QHBoxLayout;
+    hlayout->addWidget(m_LineEdit);
+    hlayout->addWidget(m_comboBox);
+    hlayout->addWidget(m_btnSend);
+
+    QVBoxLayout *vlayout = new QVBoxLayout;
+    vlayout->addWidget(m_textEdit);
+    vlayout->addLayout(hlayout);
+    this->setLayout(vlayout);
+    connect(m_btnSend,&QPushButton::clicked,this,&Widget::slot_send);
+    //connect(this,&Widget::signal_send,this,&Widget::slot_send);
+
+
+}
+
+Widget::~Widget()
+{
+}
+
+void Widget::StartServer()
+{
+    ServerData conf{8080,3};
+    m_Server = new TcpServer();
+    m_SessionInfoList = new SessionInfoList();
+    bool result = m_Server->Start(conf);
+    qDebug()<<result;
+    m_Server->OnAccepted = std::bind(&Widget::AcceptSession, this, std::placeholders::_1);;
+}
+
+void Widget::AcceptSession(std::shared_ptr<TcpSession> session)
+{
+    qDebug()<<"new";
+    SessionInfo * sessionInfo = m_SessionInfoList->NewSessionInfo(session);
+    m_comboBox->addItem(QString::number(sessionInfo->getId()));
+    connect(sessionInfo,&SessionInfo::SignalRead,this,&Widget::readSession);
+    connect(sessionInfo,&SessionInfo::SignalDisconnect,this,&Widget::slot_Disconnect);
+    connect(sessionInfo,&SessionInfo::SignalChatPack,this,&Widget::slot_readChat);
+
+}
+
+void Widget::readSession(SessionInfo *info, const QByteArray &data, int size)
+{
+    QString text = data;
+    m_textEdit->setText(text);
+    info->Write(data,size);
+
+   // m_myjson->AnalysisPack(data,info);
+}
+
+
+
+void Widget::slot_send()
+{
+    QString text = m_LineEdit->text();
+    ChatPack pack;
+    pack.chatBuff = text.toStdString();
+    QByteArray sendData;
+    m_myjson->WriteJson(sendData,pack);
+    int id = m_comboBox->currentText().toInt();
+    std::string temp = sendData.toStdString().c_str();
+
+    m_SessionInfoList->FindByID(id)->Write(temp.c_str(),temp.length()+1);
+}
+
+void Widget::slot_Disconnect(int id)
+{
+    for(int i = 0 ; i <m_comboBox->count() ; i++)
+    {
+        if(m_comboBox->itemText(i) == QString::number(id))
+        {
+            m_comboBox->removeItem(i);
+            m_comboBox->setCurrentIndex(0);
+        }
+    }
+}
+
+void Widget::slot_readChat(SessionInfo *sessionInfo, ChatPack pack)
+{
+    QString text = QStr pack.chatBuff;
+    m_textEdit->setText(text);
+}
+
+
+
+
+
+
+
+
